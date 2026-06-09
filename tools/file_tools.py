@@ -5,6 +5,7 @@ import errno
 import json
 import logging
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -147,13 +148,26 @@ def _resolve_base_dir(task_id: str = "default") -> Path:
     return base.resolve()
 
 
+def _unescape_shell_path(filepath: str) -> str:
+    r"""Unescape backslash-space sequences in a path on POSIX systems only.
+
+    Shells escape spaces in paths as '\ ' (backslash-space). Python's Path
+    does not unescape these, so a path like '~/Obsidian\ Vault/note.md'
+    would create a directory literally named 'Obsidian\ Vault'. On Windows,
+    backslash is the path separator and must never be modified.
+    """
+    if sys.platform == "win32":
+        return filepath
+    return filepath.replace("\\ ", " ")
+
+
 def _resolve_path_for_task(filepath: str, task_id: str = "default") -> Path:
     """Resolve *filepath* against the task's absolute base directory.
 
     See :func:`_resolve_base_dir` for how the base is chosen. Absolute input
     paths are returned resolved-but-unanchored.
     """
-    p = Path(filepath).expanduser()
+    p = Path(_unescape_shell_path(filepath)).expanduser()
     if p.is_absolute():
         return p.resolve()
     return (_resolve_base_dir(task_id) / p).resolve()
@@ -218,7 +232,7 @@ def _is_blocked_device(filepath: str) -> bool:
     they resolve to terminal-specific paths. Then check the resolved path so a
     workspace symlink to /dev/zero cannot bypass the guard.
     """
-    normalized = os.path.expanduser(filepath)
+    normalized = os.path.expanduser(_unescape_shell_path(filepath))
     if _is_blocked_device_path(normalized):
         return True
     try:
@@ -265,7 +279,7 @@ def _check_sensitive_path(filepath: str, task_id: str = "default") -> str | None
         resolved = str(_resolve_path_for_task(filepath, task_id))
     except (OSError, ValueError):
         resolved = filepath
-    normalized = os.path.normpath(os.path.expanduser(filepath))
+    normalized = os.path.normpath(os.path.expanduser(_unescape_shell_path(filepath)))
     _err = (
         f"Refusing to write to sensitive system path: {filepath}\n"
         "Use the terminal tool with sudo if you need to modify system files."
@@ -791,7 +805,10 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 500, task_id: str = 
 
         # ── Perform the read ──────────────────────────────────────────
         file_ops = _get_file_ops(task_id)
-        result = file_ops.read_file(path, offset, limit)
+        # Unescape shell-style backslash-space before passing to file_ops,
+        # which performs its own path resolution and would otherwise treat
+        # the literal '\ ' as part of the filename (#42556).
+        result = file_ops.read_file(_unescape_shell_path(path), offset, limit)
         result_dict = result.to_dict()
 
         # ── Character-count guard ─────────────────────────────────────
@@ -1074,7 +1091,7 @@ def write_file_tool(path: str, content: str, task_id: str = "default",
         if _resolved is None:
             stale_warning = _check_file_staleness(path, task_id)
             file_ops = _get_file_ops(task_id)
-            result = file_ops.write_file(path, content)
+            result = file_ops.write_file(_unescape_shell_path(path), content)
             result_dict = result.to_dict()
             if stale_warning:
                 result_dict["_warning"] = stale_warning
