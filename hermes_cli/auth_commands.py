@@ -36,6 +36,15 @@ from hermes_cli.secret_prompt import masked_secret_prompt
 # Providers that support OAuth login in addition to API keys.
 _OAUTH_CAPABLE_PROVIDERS = {"anthropic", "nous", "openai-codex", "xai-oauth", "qwen-oauth", "minimax-oauth"}
 
+# Providers whose runtime resolver REQUIRES an OAuth-minted token and cannot
+# use a raw user-pasted API key — even if the provider's own API endpoint
+# would accept the bare key directly. Today: ``nous`` (resolver refreshes an
+# inference-scoped JWT via the OAuth refresh_token; a bare ``sk-nous-*`` key
+# has no path through ``resolve_nous_runtime_credentials``). Keep this set
+# tight; only add a provider here when the runtime cannot honour an api-key
+# entry in the credential pool. Sibling of #5807 for the intake path (#50671).
+_API_KEY_INCOMPATIBLE_PROVIDERS = {"nous"}
+
 
 def _get_custom_provider_names() -> list:
     """Return list of (display_name, pool_key, provider_key) tuples."""
@@ -195,6 +204,23 @@ def auth_add_command(args) -> None:
             pass
 
     if requested_type == AUTH_TYPE_API_KEY:
+        # Some providers (Nous Portal) require an OAuth device-code flow at
+        # runtime because their resolver only accepts an inference-scoped JWT
+        # — a raw user-pasted API key cannot satisfy
+        # ``resolve_nous_runtime_credentials`` (which refreshes JWTs via the
+        # OAuth refresh_token). Without this guard the CLI silently writes a
+        # PooledCredential the runtime can never read, ``hermes auth list``
+        # shows it as active, and every subsequent inference call raises
+        # ``Hermes is not logged into Nous Portal`` (#50671). Sibling of #5807,
+        # which fixed the same lookup gap for ``get_nous_auth_status``.
+        if provider in _API_KEY_INCOMPATIBLE_PROVIDERS:
+            raise SystemExit(
+                f"Provider '{provider}' does not accept manually pasted API "
+                f"keys at runtime; it requires OAuth device-code login so "
+                f"the agent can obtain an inference-scoped JWT.\n"
+                f"Run instead: hermes auth add {provider} --type oauth\n"
+                f"(use --no-browser --manual-paste on headless hosts)"
+            )
         token = (getattr(args, "api_key", None) or "").strip()
         if not token:
             token = masked_secret_prompt("Paste your API key: ").strip()
