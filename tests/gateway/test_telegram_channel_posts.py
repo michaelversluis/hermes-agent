@@ -179,3 +179,79 @@ async def test_command_handler_uses_effective_message_for_channel_post(telegram_
     assert event.message_type == MessageType.COMMAND
     assert event.source.chat_type == "channel"
     assert event.source.chat_id == "-1003950368353"
+
+
+def _make_channel_photo_message(caption="report @hermes_bot"):
+    """A channel broadcast carrying a photo attachment."""
+    chat = SimpleNamespace(
+        id=-1003950368353,
+        type="channel",
+        title="wzrd",
+        full_name=None,
+        is_forum=False,
+    )
+    photo = SimpleNamespace(
+        get_file=AsyncMock(
+            return_value=SimpleNamespace(
+                download_as_bytearray=AsyncMock(return_value=bytearray(b"\x89PNG")),
+                file_path="photo.png",
+            )
+        )
+    )
+    return SimpleNamespace(
+        chat=chat,
+        from_user=None,
+        text=None,
+        caption=caption,
+        entities=[],
+        caption_entities=[],
+        message_thread_id=None,
+        is_topic_message=False,
+        message_id=11,
+        reply_to_message=None,
+        quote=None,
+        date=None,
+        forum_topic_created=None,
+        photo=[photo],
+        sticker=None,
+        voice=None,
+        audio=None,
+        video=None,
+        document=None,
+        media_group_id=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_media_handler_uses_effective_message_for_channel_post(
+    telegram_adapter_cls, monkeypatch
+):
+    """Channel broadcasts deliver media as ``channel_post``, not ``message``.
+
+    Regression for #51543: ``_handle_media_message`` guarded on
+    ``update.message`` alone and silently dropped every channel-post
+    attachment.  It must resolve via ``_effective_update_message`` like the
+    text/command handlers and route the photo into the caching pipeline.
+    """
+    adapter = _make_adapter(telegram_adapter_cls)
+    msg = _make_channel_photo_message()
+    update = _make_channel_update(msg)
+
+    adapter._should_process_message = lambda m: True
+    adapter._apply_telegram_group_observe_attribution = lambda e: e
+    adapter._photo_batch_key = MagicMock(return_value="batch-key")
+    adapter._enqueue_photo_event = MagicMock()
+
+    adapter_module = sys.modules["plugins.platforms.telegram.adapter"]
+    monkeypatch.setattr(
+        adapter_module, "cache_image_from_bytes", lambda *a, **k: "/cache/photo.png"
+    )
+
+    await adapter._handle_media_message(update, MagicMock())
+
+    # The photo was routed into the caching pipeline rather than dropped.
+    adapter._enqueue_photo_event.assert_called_once()
+    event = adapter._enqueue_photo_event.call_args.args[1]
+    assert event.media_urls == ["/cache/photo.png"]
+    assert event.source.chat_type == "channel"
+    assert event.source.chat_id == "-1003950368353"
