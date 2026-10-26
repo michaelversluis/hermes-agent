@@ -11,12 +11,49 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import legal
 import paths
 
 _LINK_RE = re.compile(r"https?://[^\s\"'<>)\]]+", re.IGNORECASE)
 _VERIFY_HINTS = ("opt", "remov", "verif", "confirm", "unsubscrib", "suppress", "delete", "privacy")
+
+
+def _safe_https_host(url: object) -> str | None:
+    """Return URL's normalized host when it is safe metadata or a safe candidate."""
+    if not isinstance(url, str) or "\\" in url:
+        return None
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return None
+    if (parsed.scheme.lower() != "https" or not parsed.netloc or parsed.netloc.endswith(":")
+            or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None
+            or port not in (None, 443)):
+        return None
+    return parsed.hostname.lower()
+
+
+def _verification_hosts(broker: object) -> set[str]:
+    """Derive exact trusted verification hosts from existing broker URL metadata."""
+    if not isinstance(broker, dict):
+        return set()
+    optout = broker.get("optout")
+    search = broker.get("search")
+    optout = optout if isinstance(optout, dict) else {}
+    search = search if isinstance(search, dict) else {}
+    deletion = optout.get("deletion")
+    deletion = deletion if isinstance(deletion, dict) else {}
+    hosts = {
+        _safe_https_host(optout.get("url")),
+        _safe_https_host(search.get("url")),
+        _safe_https_host(deletion.get("url")),
+    }
+    hosts.discard(None)
+    return hosts
 
 
 def render_draft(broker: dict, fields: dict, out_dir: Path | None = None) -> Path:
@@ -49,28 +86,20 @@ def render_request_draft(broker: dict, fields: dict, kind: str = "generic",
 def extract_verification_link(email_body: str, broker: dict | None = None) -> str | None:
     """Return the most likely opt-out/verification link from an email body.
 
-    Anti-phishing: a link is only returned if its URL matches an opt-out hint
-    and/or the broker's own domain; arbitrary links score 0 and are ignored.
+    Anti-phishing: a link is only returned when its exact HTTPS hostname is
+    declared by the broker's URL metadata. Hints rank those trusted links only.
     """
     candidates = _LINK_RE.findall(email_body or "")
-    if not candidates:
+    trusted_hosts = _verification_hosts(broker)
+    if not candidates or not trusted_hosts:
         return None
 
-    domain = ""
-    if broker:
-        url = (broker.get("optout") or {}).get("url") or (broker.get("search") or {}).get("url") or ""
-        m = re.search(r"https?://([^/]+)", url)
-        if m:
-            domain = m.group(1).replace("www.", "")
-
-    best_score, best_link = 0, None
+    best_score, best_link = -1, None
     for link in candidates:
+        if _safe_https_host(link) not in trusted_hosts:
+            continue
         low = link.lower()
-        score = 0
-        if any(h in low for h in _VERIFY_HINTS):
-            score += 2
-        if domain and domain in low:
-            score += 3
+        score = int(any(h in low for h in _VERIFY_HINTS))
         if score > best_score:
             best_score, best_link = score, link
     return best_link

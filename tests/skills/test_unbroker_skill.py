@@ -37,6 +37,7 @@ import badbool
 import brokers
 import config
 import dossier
+import email_modes
 import emailer
 import pdd
 import legal
@@ -462,6 +463,71 @@ def test_browser_send_payload_is_recipient_locked():
 
 
 
+def test_verification_link_requires_exact_https_metadata_host():
+    broker = {
+        "search": {"url": "https://www.lookup.example/search"},
+        "optout": {
+            "url": "https://privacy.broker.example:443/remove",
+            "deletion": {"url": "https://requests.vendor.example/delete"},
+        },
+    }
+    accepted = [
+        "https://PRIVACY.BROKER.EXAMPLE/verify/token?keep=yes#done",
+        "https://privacy.broker.example:443/confirm?id=7",
+        "https://Privacy.Broker.Example:443/Verify/CasePreserved",
+        "https://privacy.broker.example:0443/confirm?id=8",
+        "https://www.lookup.example/unsubscribe?q=one",
+        "https://requests.vendor.example/privacy/confirm/abc",
+    ]
+    for link in accepted:
+        assert email_modes.extract_verification_link(
+            f"Confirm removal: {link}", broker
+        ) == link, link
+
+    rejected = [
+        "http://privacy.broker.example/verify",
+        "https://privacy.broker.example:444/verify",
+        "https://privacy.broker.example:/verify",
+        "https://privacy.broker.example:bad/verify",
+        "https://privacy.broker.example:65536/verify",
+        "https://[privacy.broker.example/verify",
+        "https://attacker.invalid/verify?ref=privacy.broker.example",
+        "https://privacy.broker.example.attacker.invalid/verify",
+        "https://broker.example/verify",
+        "https://child.privacy.broker.example/verify",
+        "https://lookup.example/verify",
+        "https://user@privacy.broker.example/verify",
+        "https://privacy.broker.example@attacker.invalid/verify",
+        "https://attacker.invalid/privacy.broker.example/verify",
+        "https://privacy.broker.example\\@attacker.invalid/verify",
+        "https://attacker.invalid\\privacy.broker.example/verify",
+        "https://attacker.invalid/confirm-removal",
+    ]
+    for link in rejected:
+        assert email_modes.extract_verification_link(
+            f"Verify here: {link}", broker
+        ) is None, link
+
+    for untrusted in [None, {}, {"optout": {"url": 42}}, {"search": {"url": ["bad"]}},
+                      {"optout": "malformed"}]:
+        assert email_modes.extract_verification_link(
+            "https://attacker.invalid/verify", untrusted
+        ) is None
+
+    bad_metadata = {"optout": {"url": "https://broker.example:/remove"}}
+    assert email_modes.extract_verification_link(
+        "https://broker.example/verify", bad_metadata
+    ) is None
+
+    metadata_links = [
+        (brokers.get("intelius"), "https://suppression.peopleconnect.us/verify?token=abc"),
+        (brokers.get("whitepages"),
+         "https://whitepagesprivacy.zendesk.com/hc/en-us/requests/confirm?id=abc"),
+    ]
+    for real_broker, link in metadata_links:
+        assert email_modes.extract_verification_link(link, real_broker) == link, link
+
+
 def test_verification_link_from_messages_is_domain_scoped():
     broker = {"id": "spokeo", "name": "Spokeo",
               "search": {"url": "https://www.spokeo.com/"},
@@ -474,6 +540,33 @@ def test_verification_link_from_messages_is_domain_scoped():
     assert hit["link"] == "https://www.spokeo.com/optout/verify/abc123"
     # a phishing-only inbox yields nothing (domain scoping + link scoring)
     assert emailer.link_from_messages([phish], broker) is None
+
+
+def test_verification_link_from_messages_rejects_sender_and_body_substrings():
+    broker = {
+        "id": "example-broker",
+        "search": {"url": "https://search.broker.example/"},
+        "optout": {"url": "https://privacy.broker.example/remove"},
+    }
+    malicious = {
+        "from": "alerts@privacy.broker.example.attacker.invalid",
+        "subject": "Confirm your removal",
+        "text": "Verify at https://attacker.invalid/verify?next=privacy.broker.example",
+    }
+    legitimate = {
+        "from": "spoofed@attacker.invalid",
+        "subject": "Confirm your removal",
+        "text": (
+            "Ignore https://attacker.invalid/verify?next=privacy.broker.example and use "
+            "https://privacy.broker.example/verify/real-token?source=email"
+        ),
+    }
+
+    hit = emailer.link_from_messages([malicious, legitimate], broker)
+    assert hit is not None
+    assert hit["link"] == "https://privacy.broker.example/verify/real-token?source=email"
+    assert hit["from"] == "spoofed@attacker.invalid"
+    assert emailer.link_from_messages([malicious], broker) is None
 
 
 # --- ledger: follow-up scheduling + due queue ------------------------------------------------
