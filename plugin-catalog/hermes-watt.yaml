@@ -4,7 +4,8 @@ sha: "ead82379e6329e8c55c279665c6e09481234a18f"
 description: >-
   Local task energy receipts and quality-checked workflow comparisons. Opt-in Apple CPU/GPU estimates are system-wide;
   cloud energy stays unknown. Stores hashed task IDs, model labels, request counts and estimates locally in the active
-  profile; no prompt/response storage, uploads, secrets, runtime network calls or background service. The optional
+  profile; no prompt/response storage, telemetry uploads, secrets, third-party runtime calls or background service.
+  Desktop reads its authenticated Hermes API through the public SDK. The optional
   zeus-apple-silicon 1.1.0 native dependency reads IOReport in-process on Apple Silicon. The separate, manually run
   development benchmark sends synthetic tickets only to a loopback model server and writes local evidence.
 maintainer: michaelversluis
