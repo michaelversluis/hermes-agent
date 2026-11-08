@@ -1,0 +1,36 @@
+name: hermes-watt
+repo: https://github.com/michaelversluis/hermes-watt
+sha: "ead82379e6329e8c55c279665c6e09481234a18f"
+description: >-
+  Local task energy receipts and quality-checked workflow comparisons. Opt-in Apple CPU/GPU estimates are system-wide;
+  cloud energy stays unknown. Stores hashed task IDs, model labels, request counts and estimates locally in the active
+  profile; no prompt/response storage, uploads, secrets, runtime network calls or background service. The optional
+  zeus-apple-silicon 1.1.0 native dependency reads IOReport in-process on Apple Silicon. The separate, manually run
+  development benchmark sends synthetic tickets only to a loopback model server and writes local evidence.
+maintainer: michaelversluis
+tier: community
+category: desktop
+requires_hermes: ">=0.23.0"
+docs_url: https://github.com/michaelversluis/hermes-watt/blob/ead82379e6329e8c55c279665c6e09481234a18f/README.md
+version: "0.1.0"
+image: https://raw.githubusercontent.com/michaelversluis/hermes-watt/ead82379e6329e8c55c279665c6e09481234a18f/docs/evidence/comparison.png
+readme: true
+platforms: []
+title: "Hermes Watt"
+known_issues:
+  - "Energy telemetry is currently Apple Silicon only; other hosts show unknown energy and still record request metadata."
+  - "Native Desktop interactive QA is pending; SDK validation and component render tests pass. Evidence video is a labelled replay."
+capabilities:
+  provides_tools: []
+  provides_hooks:
+    - pre_llm_call
+    - pre_api_request
+    - post_api_request
+    - api_request_error
+    - pre_auxiliary_call
+    - post_auxiliary_call
+    - on_session_end
+    - on_session_finalize
+    - on_session_reset
+  provides_middleware: []
+  requires_env: []
