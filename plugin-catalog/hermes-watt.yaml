@@ -1,0 +1,39 @@
+name: hermes-watt
+repo: https://github.com/michaelversluis/hermes-watt
+sha: "e77ad6987ff67a116cc54126b0eee358afee93b9"
+description: >-
+  Local task energy receipts and quality-checked workflow comparisons. Opt-in Apple CPU/GPU estimates are system-wide;
+  provider inference energy stays unknown. Ordinary observation stores only local metadata, never conversation text.
+  An explicit, consented comparison starts one bounded worker thread and sends built-in fictional examples to a
+  configured literal-loopback model server; it stores synthetic answers and checked results in the active profile.
+  No model downloads, subprocesses, remote telemetry, credentials, proxies or redirects. Desktop uses authenticated
+  Hermes API routes through the public SDK. The optional zeus-apple-silicon 1.1.0 native dependency reads IOReport
+  in-process. A local model must be started separately; comparisons have cancellation and a five-minute deadline.
+maintainer: michaelversluis
+tier: community
+category: desktop
+requires_hermes: ">=0.23.0"
+docs_url: https://github.com/michaelversluis/hermes-watt/blob/e77ad6987ff67a116cc54126b0eee358afee93b9/README.md
+version: "0.2.0"
+image: https://raw.githubusercontent.com/michaelversluis/hermes-watt/e77ad6987ff67a116cc54126b0eee358afee93b9/docs/evidence/comparison-v02.png
+readme: true
+platforms: []
+title: "Hermes Watt"
+known_issues:
+  - "Energy telemetry is currently Apple Silicon only; other hosts show unknown energy and still record request metadata."
+  - "Native Desktop visual QA is pending; SDK validation, component interaction tests and actual Hermes-host integration pass. The evidence video is a labelled data replay."
+  - "Comparisons require a separately started local model. Only fixed fictional workloads are supported; results are not general or cloud savings claims."
+capabilities:
+  provides_tools: []
+  provides_hooks:
+    - pre_llm_call
+    - pre_api_request
+    - post_api_request
+    - api_request_error
+    - pre_auxiliary_call
+    - post_auxiliary_call
+    - on_session_end
+    - on_session_finalize
+    - on_session_reset
+  provides_middleware: []
+  requires_env: []
